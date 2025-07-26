@@ -10,3 +10,4 @@ langchain-community
 langchain
 docker
 autogen-ext[docker]
+streamlit
