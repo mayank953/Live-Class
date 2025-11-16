@@ -45,25 +45,11 @@ def research_via_bedrock(topic):
 
     try:
         # Invoke the model with the request.
-        request = client.invoke_model(modelId=MODEL_ID, body=request,contentType="application/json")
+        response = client.invoke_model(modelId=MODEL_ID, body=request,contentType="application/json")
         
-        raw = request["body"].read().decode("utf-8")
-        data = json.loads(raw)
-        text = None
-        for k in ("generation", "generated_text", "text", "outputText"):
-            if k in data:
-                text = data[k]
-                break
-        # fallback: try nested 'data' field
-        if text is None and isinstance(data.get("data"), list):
-            first = data["data"][0]
-            for k in ("generated_text", "text", "content"):
-                if k in first:
-                    text = first[k]; break
-        if text is None:
-            # final fallback: pretty-print JSON
-            text = json.dumps(data, indent=2)
-        return text        
+        model_response = json.loads(response["body"].read())
+        response_text = model_response["generation"]
+        return response_text        
 
     except (ClientError, Exception) as e:
         print(f"ERROR: Can't invoke '{MODEL_ID}'. Reason: {e}")
@@ -110,3 +96,5 @@ def lambda_handler(event, context):
             'body': json.dumps(f"Error processing request: {e}")
         }
 
+
+print(research_via_bedrock("Artificial Intelligence in Healthcare"))
