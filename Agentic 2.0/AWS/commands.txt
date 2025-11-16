@@ -1,2 +1,4 @@
 aws configure
 aws sts get-caller-identity
+
+https://github.com/awsdocs/aws-doc-sdk-examples/tree/main/python/example_code
