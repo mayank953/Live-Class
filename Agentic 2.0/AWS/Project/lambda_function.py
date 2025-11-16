@@ -9,7 +9,7 @@ from botocore.exceptions import ClientError
 #---------------
 
 REGION = "us-east-1"
-MODEL_ID= "anthropic.claude-3-haiku-20240307-v1:0"
+MODEL_ID= "meta.llama3-70b-instruct-v1:0"
 S3_Bucket = 'aws-bedrock-project-2'
 S3_PREFIX='input/'
 TIMEOUT_SECONDS=300
@@ -23,17 +23,21 @@ s3 = boto3.client('s3', region_name=REGION)
 
 def research_via_bedrock(topic):
     # Format the request payload using the model's native structure.
-    PROMPT = f"Write a detailed 500 words research report on the {topic}"
+    PROMPT = f"Write a detailed 100 words research report on the {topic}"
+
+    # Embed the prompt in Llama 3's instruction format.
+    formatted_prompt = f"""
+    <|begin_of_text|><|start_header_id|>user<|end_header_id|>
+    {PROMPT}
+    <|eot_id|>
+    <|start_header_id|>assistant<|end_header_id|>
+    """
+# Format the request payload using the model's native structure.
     native_request = {
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 512,
+        "prompt": formatted_prompt,
+        "max_gen_len": 512,
         "temperature": 0.5,
-        "messages": [
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": PROMPT}],
-            }
-        ],
+        "top_p": 0.95
     }
 
     # Convert the native request to JSON.
@@ -41,23 +45,36 @@ def research_via_bedrock(topic):
 
     try:
         # Invoke the model with the request.
-        response = client.invoke_model(modelId=MODEL_ID, body=request)
-        return response
+        request = client.invoke_model(modelId=MODEL_ID, body=request,contentType="application/json")
+        
+        raw = request["body"].read().decode("utf-8")
+        data = json.loads(raw)
+        text = None
+        for k in ("generation", "generated_text", "text", "outputText"):
+            if k in data:
+                text = data[k]
+                break
+        # fallback: try nested 'data' field
+        if text is None and isinstance(data.get("data"), list):
+            first = data["data"][0]
+            for k in ("generated_text", "text", "content"):
+                if k in first:
+                    text = first[k]; break
+        if text is None:
+            # final fallback: pretty-print JSON
+            text = json.dumps(data, indent=2)
+        return text        
+
     except (ClientError, Exception) as e:
         print(f"ERROR: Can't invoke '{MODEL_ID}'. Reason: {e}")
-        raise RuntimeError(f"ERROR: Can't invoke '{MODEL_ID}'. Reason: {e}")
+        raise RuntimeError(f"Invocation failed: {e}")
 
 def save_to_s3(content, bucket, prefix):
     timestamp = datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
     object_key = f"{prefix}bedrock_response_{timestamp}.txt"
-
-    try:
-        s3.put_object(Body=content.encode('utf-8'), Bucket=bucket, Key=object_key)
-        print(f"Saved response to s3://{bucket}/{object_key}")
-    except ClientError as e:
-        print(f"ERROR: Can't save to S3. Reason: {e}")
-        raise RuntimeError(f"ERROR: Can't save to S3. Reason: {e}")
-
+    s3.put_object(Body=content.encode('utf-8'), Bucket=bucket, Key=object_key)
+    print(f"Saved response to s3://{bucket}/{object_key}")
+    return object_key
 
 def lambda_handler(event, context):
     # TODO implement
@@ -92,3 +109,4 @@ def lambda_handler(event, context):
             'statusCode': 500,
             'body': json.dumps(f"Error processing request: {e}")
         }
+
